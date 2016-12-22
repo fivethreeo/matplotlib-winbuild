@@ -51,6 +51,7 @@ DEPSBUILD = os.path.join(os.path.dirname(os.path.normpath(__file__)), 'build')
 X64 = platform.architecture()[0] == '64bit'
 PYVER = sys.version_info[:2]
 VS2010 = PYVER >= (3, 3)
+VS2015 = PYVER >= (3, 5)
 # If not VS2010, then use VS2008
 
 VCVARSALL = None
@@ -58,16 +59,16 @@ VCVARSALL = None
 def prepare_build_cmd(build_cmd, **kwargs):
     global VCVARSALL
     if VCVARSALL == None:
-        candidate = msvc.find_vcvarsall(10.0 if VS2010 else 9.0)
+        candidate = msvc.find_vcvarsall((VS2015 and 14.0) or (VS2010 and 10.0) or 9.0) 
         if candidate == None:
-            raise RuntimeError('Microsoft VS {} required'.format('2010' if VS2010 else '2008'))
+            raise RuntimeError('Microsoft VS {} required'.format((VS2015 and '2015') or (VS2010 and '2010') or '2008'))
         else:
             VCVARSALL = candidate
 
     return build_cmd.format(vcvarsall=VCVARSALL, xXX='x64' if X64 else 'x86', **kwargs)
 
 def config_dir():
-    segment = 'msvcr{}-x{}'.format('100' if VS2010 else '90', '64' if X64 else '32')
+    segment = 'msvcr{}-x{}'.format((VS2015 and '140') or (VS2010 and '100') or '90', '64' if X64 else '32')
     return os.path.join(DEPSBUILD, segment)
 
 def tcl_config_dir():
@@ -191,8 +192,11 @@ FREETYPE_BUILD_CMD = """\
 @ECHO OFF
 REM call "%ProgramFiles%\\Microsoft SDKs\\Windows\\v7.0\\Bin\\SetEnv.Cmd" /Release /{xXX} /xp
 call "{vcvarsall}" {xXX}
-set MSBUILD=C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\MSBuild.exe
-
+IF "{MSBUILD}"=="" (
+   set MSBUILD=C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\MSBuild.exe
+) ELSE (
+   set MSBUILD="%ProgramFiles% (x86)\\MSBuild\\14.0\\Bin\\MSBuild.exe"
+)
 rd /S /Q %FREETYPE%\\objs
 %MSBUILD% %FREETYPE%\\builds\\win32\\{vc20xx}\\freetype.sln /t:Clean;Build /p:Configuration="{config}";Platform={WinXX}
 xcopy /Y /E /Q %FREETYPE%\\include %INCLIB%
@@ -211,17 +215,17 @@ def build_freetype():
         # already built
         return
 
-    vc = 'vc2010' if VS2010 else 'vc2008'
+    vc = 'vc2010' if (VS2015 or VS2010) else 'vc2008'
     WinXX = 'x64' if X64 else 'Win32'
 
     zip_extract(distfile, DEPSBUILD)
     ft_dir = os.path.join(DEPSBUILD, 'freetype-2.4.11')
     fixproj(os.path.join(ft_dir, 'builds', 'win32', vc, 'freetype.sln'), WinXX)
-    fixproj(os.path.join(ft_dir, 'builds', 'win32', vc, 'freetype.{}'.format('vcxproj' if VS2010 else 'vcproj')), WinXX)
+    fixproj(os.path.join(ft_dir, 'builds', 'win32', vc, 'freetype.{}'.format('vcxproj' if (VS2015 or VS2010) else 'vcproj')), WinXX)
 
     cmdfile = os.path.join(DEPSBUILD, 'build_freetype.cmd')
     with open(cmdfile, 'w') as cmd:
-        cmd.write(prepare_build_cmd(FREETYPE_BUILD_CMD, vc20xx=vc, WinXX=WinXX, config='Release' if VS2010 else 'LIB Release'))
+        cmd.write(prepare_build_cmd(FREETYPE_BUILD_CMD, vc20xx=vc, WinXX=WinXX, config='Release' if (VS2015 or VS2010) else 'LIB Release', MSBUILD=VS2015 and '14' or ''))
 
     os.environ['INCLIB'] = inclib
     os.environ['FREETYPE'] = ft_dir
